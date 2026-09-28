@@ -388,7 +388,11 @@ async function parseDrama() {
     currentSeriesId = info.series_id;
     selectedEps = new Set(episodes.map(e => e.vid_index));
     document.getElementById('dramaTitle').textContent = info.series_title;
-    document.getElementById('dramaMeta').textContent = `共 ${episodes.length} 集`;
+    const totalEpisodes = Number(info.total_episode_count || episodes.length);
+    const accessibleEpisodes = Number(info.accessible_episode_count || episodes.length);
+    document.getElementById('dramaMeta').textContent = accessibleEpisodes < totalEpisodes
+      ? `共 ${totalEpisodes} 集 · 当前公开 ${accessibleEpisodes} 集`
+      : `共 ${totalEpisodes} 集`;
     if (info.cover) {
       const c = document.getElementById('cover');
       c.src = info.cover;
