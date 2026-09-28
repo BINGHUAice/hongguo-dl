@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from Crypto.Cipher import AES
 
 API = "https://api5-normal-sinfonlineb.fqnovel.com"
+PUBLIC_WEB = "https://hongguoduanju.com"
 # 新版 7.3.5.32 UA（参考 juku-backend，可绕过风控）
 UA = "com.phoenix.read/73532 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
 
@@ -168,25 +169,55 @@ def resolve_series_id(share_url):
 
 
 def fetch_episode_list(series_id):
-    """新版接口 video_detail/v1/ 获取剧集列表（带签名）"""
-    body = {"series_id": series_id}
-    j = api_call("/novel/player/video_detail/v1/", body)
-    d = j.get("data", {})
-    vd = d.get("video_data", {})
-    vl = vd.get("video_list", [])
-    eps = []
-    for item in vl:
-        eps.append({
-            "vid": str(item["vid"]),
-            "vid_index": int(item.get("vid_index", len(eps) + 1)),
-            "title": item.get("title", ""),
-        })
-    eps.sort(key=lambda x: x["vid_index"])
+    """读取剧集列表。
+
+    Docker 部署不能依赖桌面版的设备签名组件。公开网页会提供剧集
+    元数据和明确开放的集数，因此优先使用网页数据；仅把网页标记为
+    accessible 的集数交给下载器，锁定集数不会被当作可下载任务。
+    """
+    return fetch_public_episode_list(series_id)
+
+
+def fetch_public_episode_list(series_id):
+    """从公开播放页读取剧集元数据和公开集数。"""
+    url = f"{PUBLIC_WEB}/player/{series_id}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+        "Referer": f"{PUBLIC_WEB}/",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+    resp.raise_for_status()
+    marker = '"seriesDetail":'
+    pos = resp.text.find(marker)
+    if pos < 0:
+        raise Exception("公开播放页没有剧集信息")
+    try:
+        detail, _ = json.JSONDecoder().raw_decode(resp.text[pos + len(marker):])
+    except json.JSONDecodeError as exc:
+        raise Exception("公开播放页剧集信息格式异常") from exc
+
+    vids = [str(v) for v in (detail.get("vid_list") or []) if str(v).isdigit()]
+    if not vids:
+        raise Exception("公开播放页没有可识别的剧集")
+    try:
+        accessible = int(detail.get("accessible_episode_cnt") or 0)
+    except (TypeError, ValueError):
+        accessible = 0
+    accessible = max(0, min(accessible, len(vids)))
+    episodes = [
+        {"vid": vid, "vid_index": index, "title": f"第{index}集"}
+        for index, vid in enumerate(vids[:accessible], 1)
+    ]
+    if not episodes:
+        raise Exception("当前剧集没有公开可下载的集数")
     return {
-        "series_id": series_id,
-        "series_title": vd.get("series_title", "未命名"),
-        "cover": vd.get("series_cover", ""),
-        "episodes": eps,
+        "series_id": str(detail.get("series_id") or series_id),
+        "series_title": detail.get("series_name") or "未命名",
+        "cover": detail.get("series_cover") or "",
+        "total_episode_count": int(detail.get("episode_cnt") or len(vids)),
+        "accessible_episode_count": accessible,
+        "episodes": episodes,
     }
 
 

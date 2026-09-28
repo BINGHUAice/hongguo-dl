@@ -1,10 +1,14 @@
-version: "3.8"
 services:
   hongguo-dl:
-    image: gybeyond1/hongguo-dl:latest
+    build:
+      context: ./docker
+    image: hongguo-dl:local
     container_name: hongguo-dl
-    restart: unless-stopped
+    restart: "no"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8800:8080"
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in .env}
+      DOWNLOAD_DIR: /downloads
     volumes:
-      - /volume1/GY/hongguo-downloads:/downloads
+      - ./downloads:/downloads
